@@ -18,6 +18,19 @@ type ErrorResponse struct {
 	Details interface{} `json:"details,omitempty"`
 }
 
+// Apply the ApiResonse interface to ErrorResponse
+func (e *ErrorResponse) GetStatusCode() int {
+	return e.Status
+}
+
+func (e *ErrorResponse) GetMessage() interface{} {
+	return e.Message
+}
+
+func (e *ErrorResponse) GetDetails() interface{} {
+	return e.Details
+}
+
 // ValidationError represents a validation error
 type ValidationError struct {
 	Field   string `json:"field"`
