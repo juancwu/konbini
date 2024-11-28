@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestHandleSignUp(t *testing.T) {
+func TestAuthHandlers(t *testing.T) {
 	tests := []struct {
 		name           string
 		expectedStatus int
