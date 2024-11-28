@@ -1,14 +1,11 @@
 package handler
 
 import (
-	"bytes"
-	"encoding/json"
 	"konbini/middleware"
 	"konbini/store"
+	"konbini/testutil"
 	"net/http"
-	"net/http/httptest"
 	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/labstack/echo/v4"
@@ -16,48 +13,57 @@ import (
 )
 
 func TestAuthHandlers(t *testing.T) {
-	tests := []struct {
-		name           string
-		expectedStatus int
-		expectedBody   string
-		requestBody    signUpBody
-		requestMethod  string
-	}{
-		{
-			name:           "Successful sign up",
-			expectedStatus: http.StatusCreated,
-			expectedBody:   `{"status":201,"message":"Successfully signed up."}`,
-			requestBody: signUpBody{
-				Email:    "my@mail.com",
-				Password: "123456789abc@",
-			},
-			requestMethod: http.MethodPost,
-		},
-	}
-
 	e := echo.New()
 	db, err := store.NewConn()
 	assert.Nil(t, err)
 	h := authHandler{db}
-	e.POST("/", h.handleSignUp, middleware.BindAndValidate(reflect.TypeOf(signUpBody{})))
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			buf, err := json.Marshal(test.requestBody)
-			assert.Nil(t, err)
+	tests := []testutil.HTTPTestCase{
+		{
+			Name:   "Successful sign up",
+			Method: http.MethodPost,
+			Path:   "/sign-up",
+			RequestBody: signUpBody{
+				Email:    "my@mail.com",
+				Password: "123456789abc@",
+			},
+			Handler: h.handleSignUp,
+			Middlewares: []echo.MiddlewareFunc{
+				middleware.BindAndValidate(reflect.TypeOf(signUpBody{})),
+			},
+			ExpectedStatus: http.StatusCreated,
+			ExpectedBody: testutil.JSONMatcher{
+				Expected: map[string]interface{}{
+					"status":  http.StatusCreated,
+					"message": "Successfully signed up.",
+				},
+			},
+		},
+		{
+			Name:   "Successful sign in",
+			Method: http.MethodPost,
+			Path:   "/sign-in",
+			RequestBody: signInBody{
+				Email:    "my@mail.com",
+				Password: "123456789abc@",
+			},
+			Handler: h.handleSignIn,
+			Middlewares: []echo.MiddlewareFunc{
+				middleware.BindAndValidate(reflect.TypeOf(signInBody{})),
+			},
+			ExpectedStatus: http.StatusCreated,
+			ExpectedBody: testutil.JSONMatcher{
+				Expected: map[string]interface{}{
+					"status": http.StatusOK,
+				},
+				IgnoreFields: []string{"token"},
+			},
+		},
+	}
 
-			reader := bytes.NewReader(buf)
-
-			req := httptest.NewRequest(test.requestMethod, "/", reader)
-			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
-
-			rec := httptest.NewRecorder()
-
-			e.ServeHTTP(rec, req)
-
-			assert.Equal(t, test.expectedStatus, rec.Code)
-			assert.Equal(t, "application/json", rec.Header().Get(echo.HeaderContentType))
-			assert.Equal(t, test.expectedBody, strings.TrimSpace(rec.Body.String()))
+	for _, tc := range tests {
+		t.Run(tc.Name, func(t *testing.T) {
+			testutil.RunHTTPTest(t, e, tc)
 		})
 	}
 }

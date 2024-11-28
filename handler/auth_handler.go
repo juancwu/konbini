@@ -46,3 +46,7 @@ func (h *authHandler) handleSignUp(c echo.Context) error {
 
 	return respond(http.StatusCreated, "Successfully signed up.", c)
 }
+
+func (h *authHandler) handleSignIn(c echo.Context) error {
+	return respond(http.StatusOK, "", c)
+}
