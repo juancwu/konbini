@@ -45,6 +45,9 @@ func main() {
 	e.Use(emw.RequestID())
 	e.Use(middleware.Logger())
 
+	apiv1 := e.Group("/api/v1")
+	handler.SetupAuthRoutes(apiv1, db)
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "3000"
