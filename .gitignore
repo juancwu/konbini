@@ -11,5 +11,6 @@ coverage.html
 # Added by cargo
 
 /target
+.local
 
 .DS_Store

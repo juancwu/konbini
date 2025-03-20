@@ -1,45 +1,74 @@
 package main
 
 import (
+	sentryecho "github.com/getsentry/sentry-go/echo"
+	echoval "github.com/juancwu/go-valkit/integrations/echo"
+	"github.com/juancwu/go-valkit/validations"
+	"github.com/juancwu/konbini/server/api/routes"
 	"github.com/juancwu/konbini/server/config"
 	"github.com/juancwu/konbini/server/db"
-	"github.com/juancwu/konbini/server/handlers"
-	"github.com/juancwu/konbini/server/routes"
-	inner_validator "github.com/juancwu/konbini/server/validator"
-
-	"github.com/go-playground/validator/v10"
+	"github.com/juancwu/konbini/server/middleware"
+	"github.com/juancwu/konbini/server/observability"
 	"github.com/labstack/echo/v4"
+	echomiddleware "github.com/labstack/echo/v4/middleware"
 	"github.com/rs/zerolog/log"
 )
 
 func main() {
-	cfg, err := config.New()
+	cfg, err := config.Load()
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to load server configuration")
+		log.Fatal().Err(err).Msg("Failed to load configuration")
 	}
 
-	dbUrl, dbAuthToken := cfg.GetDatabaseConfig()
+	// Establish database connection
+	tursoConnector := db.NewTursoConnector(cfg.DatabaseURL, cfg.DatabaseAuthToken)
+	_, err = tursoConnector.Connect()
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to establish connection with database")
+	}
+
+	err = observability.InitSentry(observability.SentryConfig{
+		DSN:              cfg.SentryDSN,
+		Environment:      string(cfg.Environment),
+		Debug:            cfg.Debug,
+		SampleRate:       1.0,
+		TracesSampleRate: 0.2,
+		MaxBreadcrumbs:   100,
+		EnableTracing:    true,
+		ServerName:       cfg.ServerName,
+	})
 
 	e := echo.New()
 
-	validate := validator.New()
-	cv := inner_validator.Validator{Validator: validate}
-	e.Validator = &cv
+	e.Use(echomiddleware.Recover())
+	e.Use(echomiddleware.RequestID())
+	// e.Use(echomiddleware.CSRF())
+	e.Use(middleware.LoggerMiddleware())
 
-	// set global error handler
-	e.HTTPErrorHandler = handlers.ErrorHandler()
+	// Sentry setup
+	e.Use(sentryecho.New(sentryecho.Options{}))
+	e.Use(observability.SentryHubMiddleware())
 
-	// v1 routes
-	apiV1 := e.Group("/api/v1")
-	routeConfig := &routes.RouteConfig{
-		Echo:         apiV1,
-		ServerConfig: cfg,
-		DBConnector:  db.NewConnector(dbUrl, dbAuthToken),
-	}
-	routes.SetupRoutesV1(routeConfig)
+	// Create new validator
+	ev := echoval.NewValidator()
+	v := ev.GetValidator()
 
-	err = e.Start(cfg.GetPort())
-	if err != nil {
+	// Set default message for validation errors
+	v.SetDefaultMessage("{0} has invalid value")
+
+	// Add password validation tag
+	validations.AddPasswordValidation(v, validations.DefaultPasswordOptions())
+
+	// Setup validation error handler
+	e.HTTPErrorHandler = echoval.ValidationErrorHandler(ev, middleware.ErrorHandlerMiddleware())
+
+	e.Validator = ev
+	cfg.Validator = ev
+
+	// Register routes
+	routes.RegisterRoutes(e, cfg, tursoConnector)
+
+	if err := e.Start(cfg.GetAddress()); err != nil {
 		log.Fatal().Err(err).Msg("Failed to start server.")
 	}
 }
